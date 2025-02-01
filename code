@@ -1,0 +1,306 @@
+//#define THINGER_SERIAL_DEBUG
+//#include <ThingerESP32.h>
+#include <LiquidCrystal_I2C.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
+#include <ArduinoJson.h>
+#include <UniversalTelegramBot.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+
+// Wifi
+#define SSID ""
+#define SSID_PASSWORD ""
+
+// I2C LCD display addresses
+const int lcdAddress1 = 0x27; // Replace with the actual I2C address of LCD 1
+const int lcdAddress2 = 0x28; // Replace with the actual I2C address of LCD 2
+const int lcdAddress3 = 0x29; // Replace with the actual I2C address of LCD 3
+
+// I2C LCD displays
+LiquidCrystal_I2C lcd1(lcdAddress1, 16, 2);
+LiquidCrystal_I2C lcd2(lcdAddress2, 16, 2);
+LiquidCrystal_I2C lcd3(lcdAddress3, 16, 2);
+
+// MPU6050
+Adafruit_MPU6050 mpu;
+float Scala_richter = 0;
+
+// OUTPUT
+const int BUZZER = 17;
+const int REDPIN = 5;
+const int YELLOWPIN = 18;
+const int GREENPIN = 19;
+
+// Iot Side
+bool SISTEM_IOT = 0;
+bool TELEGRAM = 1;
+bool THINGER = 0;
+
+// THINGER
+//#define USERNAME ""
+//#define DEVICE_ID ""
+//#define DEVICE_CREDENTIAL ""
+//ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
+
+// Telegram
+int botRequestDelay = 1000;
+unsigned long lastTimeBotRan;
+int DelaySendBot = 200;
+#define BOTtoken ""
+#define CHAT_ID ""
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
+void handleNewMessages(int numNewMessages) {
+  Serial.println("handleNewMessages");
+  Serial.println(String(numNewMessages));
+  for (int i=0; i<numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    if (chat_id != CHAT_ID){
+      bot.sendMessage(chat_id, "Unauthorized user", "");
+      continue;
+    }
+    String text = bot.messages[i].text;
+    Serial.println(text);
+    String from_name = bot.messages[i].from_name;
+    if (text == "/start") {
+      String welcome = "Pendeteksi Gempa IoT Berbasis Telegram, " + from_name + ".\n";
+      welcome += "Gunakan Command Yang Sesuai Dengan Kegunaan.\n\n";
+      welcome += "/on (Menyalakan Sistem) \n";
+      welcome += "/off (Mematikan  Sistem) \n";
+      welcome += "/status (Mengambil Data Keadaan Sistem) \n";
+      bot.sendMessage(chat_id, welcome, "");
+    }
+
+    if (text == "/on") {
+      String StatusBaruOnline = "Pendeteksi Gempa IoT Berbasis Telegram, " + from_name + ".\n";
+      StatusBaruOnline += "Perbarui Status Sistem \n";
+      StatusBaruOnline += "Sistem IOT : Online (Connected) \n";
+      StatusBaruOnline += "=============================== \n";
+      StatusBaruOnline += "@Copyright Than \n";
+      bot.sendMessage(chat_id, StatusBaruOnline , "");
+      SISTEM_IOT = 1;
+    }
+    
+    if (text == "/off") {
+      String StatusBaruOffline = "Pendeteksi Gempa IoT Berbasis Telegram, " + from_name + ".\n";
+      StatusBaruOffline += "Perbarui Status Sistem \n";
+      StatusBaruOffline += "Sistem IOT : Offline (Not Connected) \n";
+      StatusBaruOffline += "=============================== \n";
+      StatusBaruOffline += "@Copyright Than \n";
+      bot.sendMessage(chat_id, StatusBaruOffline , "");
+      SISTEM_IOT = 0;
+    }
+
+    
+    if (text == "/status") {
+      String StatusOnline = "Pendeteksi Gempa IoT Berbasis Telegram, " + from_name + ".\n";
+      StatusOnline += "Informasi Mengenai Status Sistem \n";
+      StatusOnline += "Sistem IOT : Online (Connected) \n";
+      StatusOnline += "=============================== \n";
+      StatusOnline += "@Copyright Than \n";
+
+      String StatusOffline = "Pendeteksi Gempa IoT Berbasis Telegram, " + from_name + ".\n";
+      StatusOffline += "Informasi Mengenai Status Sistem \n";
+      StatusOffline += "Sistem IOT : Offline (Not Connected) \n";
+      StatusOffline += "=============================== \n";
+      StatusOffline += "@Copyright Than \n";
+      
+      if (SISTEM_IOT == 1){
+        bot.sendMessage(chat_id, StatusOnline , "");
+      }else{
+        bot.sendMessage(chat_id, StatusOffline , "");
+      }
+    }
+  }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER, OUTPUT);
+  pinMode(REDPIN, OUTPUT);
+  pinMode(YELLOWPIN, OUTPUT);
+  pinMode(GREENPIN, OUTPUT);
+
+  // Initialize Wifi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, SSID_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi..");
+  }
+
+  Serial.println(WiFi.localIP());
+
+  // Initialize Thinger
+  //if (THINGER == true){
+  //thing.add_wifi(SSID, SSID_PASSWORD);
+  //while (!Serial) {
+  //  delay(10);
+  //}
+  //}
+
+  // Initialize Telegram
+  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+
+  // Initialize the I2C LCD displays
+  lcd1.init();
+  lcd2.init();
+  lcd3.init();
+
+  // Backlight the LCD displays
+  lcd1.backlight();
+  lcd2.backlight();
+  lcd3.backlight();
+
+  // Clear the LCD displays
+  lcd1.clear();
+  lcd2.clear();
+  lcd3.clear();
+  
+  while (!mpu.begin()) {
+    Serial.println("MPU6050 not connected!");
+    delay(1000);
+  }
+  Serial.println("MPU6050 ready!");
+  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+}
+
+void SISTEM_LED(){
+  float valueSR = PENGUKURAN_GEMPA();
+  // Display data on LCD 1 Online
+  if (SISTEM_IOT == 1) {
+  lcd1.clear();
+  lcd1.print("Pendeteksi Gempa IoT");
+  lcd1.setCursor(0, 1);
+  lcd1.print("Sistem: ");
+  lcd1.print("Online");
+  } 
+
+  // Display data on LCD 1 Offline
+  if (SISTEM_IOT == 0){
+  lcd1.clear();
+  lcd1.print("Pendeteksi Gempa IoT");
+  lcd1.setCursor(0, 1);
+  lcd1.print("Sistem: ");
+  lcd1.print("Offline");
+  }
+
+  // Display data on LCD 2 Iot Sistem
+  if (TELEGRAM == 1 && THINGER == 0){
+  lcd2.clear();
+  lcd2.print("Telegram: ");
+  lcd2.print("Online");
+  lcd2.setCursor(0, 1);
+  lcd2.print("Thinger: ");
+  lcd2.print("Offline");
+  }
+
+  if (TELEGRAM == 0 && THINGER == 1){
+  lcd2.clear();
+  lcd2.print("Telegram: ");
+  lcd2.print("Offline");
+  lcd2.setCursor(0, 1);
+  lcd2.print("Thinger: ");
+  lcd2.print("Online");
+  }
+
+  if (TELEGRAM == 0 && THINGER == 0){
+  lcd2.clear();
+  lcd2.print("Telegram: ");
+  lcd2.print("Offline");
+  lcd2.setCursor(0, 1);
+  lcd2.print("Thinger: ");
+  lcd2.print("Offline");
+  }
+
+  // Display data on LCD 3 Skala Richter
+  lcd3.clear();
+  lcd3.print("Skala Richter");
+  lcd3.setCursor(0, 1);
+  lcd3.print(valueSR);
+  lcd3.print( " Magnitude");
+}
+
+
+//void SISTEM_THINGER(){
+  //if (THINGER == true){   
+ // }
+//}
+
+void loop() {
+    SISTEM_LED();
+    SISTEMGEMPA();
+    if (TELEGRAM == 1){
+    if (millis() > lastTimeBotRan + botRequestDelay) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while(numNewMessages) {
+      Serial.println("got response");
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    lastTimeBotRan = millis();
+    }
+  }
+  //SISTEM_THINGER();
+}
+
+float PENGUKURAN_GEMPA(){
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  float Acc1 = (a.acceleration.x) * (a.acceleration.x);
+  float Acc2 = (a.acceleration.y) * (a.acceleration.y);
+  Scala_richter = sqrt(Acc1 + Acc2);
+
+  return Scala_richter;
+}
+
+void SISTEMGEMPA(){
+    float totalAcc = PENGUKURAN_GEMPA();
+    if(SISTEM_IOT == 1){
+      if(totalAcc>0 && totalAcc<1){
+      digitalWrite(GREENPIN, LOW);
+      delay(1000);
+      noTone(BUZZER);
+      digitalWrite(GREENPIN, LOW);
+      delay(1000);
+      digitalWrite(REDPIN, LOW);
+      Serial.println(totalAcc);
+      }else if(totalAcc>1 && totalAcc <4){ // GEMPA RINGAN 
+      bot.sendMessage(CHAT_ID, "1-4 Magnitude (GEMPA RINGAN)", "");
+      tone(BUZZER, 500, 1000);
+      digitalWrite(GREENPIN, HIGH);
+      delay(1000);
+      noTone(BUZZER);
+      digitalWrite(GREENPIN, LOW);
+      delay(1000);
+      digitalWrite(REDPIN, LOW);
+      delay(DelaySendBot);
+      }else if(totalAcc>4 && totalAcc <6){ //GEMPA SEDANG
+      bot.sendMessage(CHAT_ID, "4-6 Magnitude (GEMPA SEDANG)", "");
+      tone(BUZZER, 500, 1000);
+      digitalWrite(YELLOWPIN, HIGH);
+      delay(500);
+      noTone(BUZZER);
+      digitalWrite(YELLOWPIN, LOW);
+      delay(500);
+      digitalWrite(REDPIN, LOW);
+      delay(DelaySendBot);
+     }else{ //GEMPA BESAR
+      bot.sendMessage(CHAT_ID, "6+ Magnitude (GEMPA BESAR)", "");
+      tone(BUZZER, 500, 1000);
+      digitalWrite(REDPIN, HIGH);
+      delay(250);
+      noTone(BUZZER);
+      digitalWrite(REDPIN, LOW);
+      delay(DelaySendBot);
+     }
+    } 
+  }
+
